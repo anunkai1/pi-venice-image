@@ -2,15 +2,19 @@
  * pi-venice-image — Venice image-generation tool for the pi coding agent.
  *
  * Registers two tools the agent can call:
- *   - venice_generate_image(prompt, ...)        — one prompt, 1–4 images
- *   - venice_generate_images(prompts: string[]) — batch over many prompts
+ *   - venice_generate_image(prompt, ...)        — one prompt → one image
+ *   - venice_generate_images(prompts: string[]) — batch: one image per prompt
  *
  * Both hit POST https://api.venice.ai/api/v1/image/generate. Auth comes
  * from VENICE_API_KEY in the env (the ACB systemd unit injects this via
  * /home/lepton/.secrets/llm/providers.env; standalone pi reads it from
- * ~/.pi/agent/auth.json's `venice` entry). The agent receives the
- * Venice-hosted image URLs back as Markdown in the tool result, plus the
- * raw URLs in `details.images` for programmatic use.
+ * ~/.pi/agent/auth.json's `venice` entry). Venice's /image/generate
+ * returns base64-encoded image bytes (NOT hosted URLs), so the tool
+ * decodes them and writes `<uuid>.<ext>` into the agentchatbox uploads
+ * dir (exposed via $ACB_UPLOADS_DIR, served at /uploads/ by the ACB
+ * server). The agent receives `/uploads/<uuid>.<ext>` URLs back as
+ * Markdown in the tool result, plus the raw URLs in `details.images`
+ * for programmatic use.
  *
  * Why this lives in pi, not agentchatbox (per AGENTS.md): deciding what
  * image to generate, which model to use, and how to handle results is
@@ -33,61 +37,20 @@
  * server log.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import Type from "typebox";
-
-// ── Configuration ──────────────────────────────────────────────────
-
-const VENICE_BASE = "https://api.venice.ai/api/v1";
-const VENICE_IMAGE_ENDPOINT = `${VENICE_BASE}/image/generate`;
-
-/** Built-in fallback model. Cheap, fast, kidstories already uses it. */
-const DEFAULT_MODEL = "z-image-turbo";
-
-/** Default prompt suffix applied to every image generation. Keeps generated
- *  images consistent (kidstories-style). The agent can pass `style` to override. */
-const DEFAULT_STYLE = "high quality, detailed";
-
-/** Hide the Venice cursive logo watermark by default (the same toggle the
- *  Venice app UI exposes; kidstories also enables it via VENICE_HIDE_WATERMARK).
- *  Agent can override per call with `hide_watermark`. */
-const DEFAULT_HIDE_WATERMARK = true;
-
-/** Path to the per-user override file written by agentchatbox's
- *  setImageModel RPC handler. Existence + first-line content = the
- *  chosen model id; absence = no override (use env / default). */
-const IMAGE_MODEL_OVERRIDE_FILE = join(
-	process.env.HOME ?? homedir(),
-	".config",
-	"acb",
-	"image-model",
-);
-
-/** Resolved at tool-call time so live changes from the ACB picker
- *  take effect without a pi respawn. Order: explicit param > override
- *  file > VENICE_IMAGE_MODEL env > built-in default. */
-function resolveModel(explicit?: string | null): string {
-	if (explicit && explicit.length > 0) return explicit;
-	try {
-		if (existsSync(IMAGE_MODEL_OVERRIDE_FILE)) {
-			const raw = readFileSync(IMAGE_MODEL_OVERRIDE_FILE, "utf8").trim();
-			if (raw.length > 0) return raw;
-		}
-	} catch {
-		/* fall through */
-	}
-	return process.env.VENICE_IMAGE_MODEL?.trim() || DEFAULT_MODEL;
-}
-
-/** Read VENICE_API_KEY at call time (not module load) so env changes
- *  between sessions / systemd restarts are picked up. Returns undefined
- *  if unset — caller surfaces a clean error. */
-function getVeniceKey(): string | undefined {
-	const k = process.env.VENICE_API_KEY?.trim();
-	return k && k.length > 0 ? k : undefined;
-}
+import {
+	DEFAULT_HIDE_WATERMARK,
+	DEFAULT_MODEL,
+	DEFAULT_STYLE,
+	ensureOutputDir,
+	getVeniceKey,
+	persistImage,
+	resolveFormat,
+	resolveModel,
+	resolveOutputDir,
+	type VeniceImageResponse,
+	callVeniceImage,
+} from "./lib.js";
 
 // ── Schema ─────────────────────────────────────────────────────────
 
@@ -155,54 +118,30 @@ const ImageGenerateBatchParams = Type.Object({
 	safe_mode: ImageGenerateParams.properties.safe_mode,
 });
 
-// ── Core call ──────────────────────────────────────────────────────
+// (Venice HTTP call + pure helpers live in ./lib.ts — kept separate so they
+//  can be unit-tested without the pi tool-registration machinery.)
 
-interface VeniceImageResponse {
-	images?: Array<{ url?: string }>;
-	requestId?: string;
-}
-
-async function callVeniceImage(
-	apiKey: string,
-	body: Record<string, unknown>,
-	signal: AbortSignal | undefined,
-): Promise<VeniceImageResponse> {
-	const res = await fetch(VENICE_IMAGE_ENDPOINT, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			Authorization: `Bearer ${apiKey}`,
-		},
-		body: JSON.stringify(body),
-		// fetch's signal param is `AbortSignal | null`; an undefined
-		// signal would be treated as "no signal" by the runtime but TS
-		// narrows from AbortSignal | undefined → AbortSignal above, so
-		// we coerce: undefined → null.
-		signal: signal ?? null,
-	});
-	if (!res.ok) {
-		const text = await res.text().catch(() => "");
-		throw new Error(`Venice image API ${res.status}: ${text.slice(0, 500)}`);
-	}
-	return (await res.json()) as VeniceImageResponse;
-}
-
-/** Format the response as a tool result. The agent sees Markdown in the
- *  text channel and the raw URL list in `details.images`. */
+/** Format the response as a tool result. Venice returns each image as
+ *  a base64 string (with return_binary=false); we persist the bytes to
+ *  the ACB uploads dir and hand back `/uploads/<uuid>.<ext>` URLs. The
+ *  agent sees Markdown `![](url)` in the text channel and the raw URL
+ *  list in `details.images`. */
 function formatResult(
 	prompt: string,
 	model: string,
 	resp: VeniceImageResponse,
+	outputDir: string,
+	ext: string,
 ): { content: Array<{ type: "text"; text: string }>; details: { model: string; images: string[] } } {
 	const urls = (resp.images ?? [])
-		.map((i) => i.url)
+		.map((i) => persistImage(i, outputDir, ext))
 		.filter((u): u is string => typeof u === "string" && u.length > 0);
 	if (urls.length === 0) {
 		return {
 			content: [
 				{
 					type: "text",
-					text: `Venice returned no image URLs for model '${model}' and prompt "${prompt.slice(0, 200)}".`,
+					text: `Venice returned no decodable images for model '${model}' and prompt "${prompt.slice(0, 200)}".`,
 				},
 			],
 			details: { model, images: [] },
@@ -230,9 +169,9 @@ export default function (pi: ExtensionAPI): void {
 		name: "venice_generate_image",
 		label: "Venice: Generate Image",
 		description:
-			"Generate one or more images from a text prompt using the Venice image API. Returns Venice-hosted URLs (Markdown ![](url) + raw URL list in details). Use when the user asks for an image, illustration, picture, logo, visual, or concept art.",
+			"Generate an image from a text prompt using the Venice image API (one image per call). Returns /uploads/<uuid>.<ext> URLs (Markdown ![](url) + raw URL list in details); image bytes are decoded from Venice's base64 response and saved to the agentchatbox uploads dir. Use when the user asks for an image, illustration, picture, logo, visual, or concept art.",
 		promptSnippet:
-			"Use when the user asks for an image, illustration, picture, logo, visual, or concept art. The result is a Venice-hosted URL — include it in your reply with markdown image syntax so it renders in the UI.",
+			"Use when the user asks for an image, illustration, picture, logo, visual, or concept art. The result is a /uploads/... URL — include it your reply with markdown image syntax so it renders in the UI.",
 		parameters: ImageGenerateParams,
 		async execute(_callId, params, signal, _onUpdate, _ctx) {
 			const apiKey = getVeniceKey();
@@ -254,28 +193,41 @@ export default function (pi: ExtensionAPI): void {
 					details: { error: "missing prompt", model: null, images: [] },
 				};
 			}
+			const outputDir = resolveOutputDir();
 			const model = resolveModel(params.model as string | null | undefined);
-			const style = typeof params.style_preset === "string" && params.style_preset.length > 0
+			const stylePreset = typeof params.style_preset === "string" && params.style_preset.length > 0
 				? params.style_preset
-				: DEFAULT_STYLE;
+				: undefined;
 			const hideWatermark = params.hide_watermark === undefined
 				? DEFAULT_HIDE_WATERMARK
 				: Boolean(params.hide_watermark);
 			const safeMode = params.safe_mode === undefined ? true : Boolean(params.safe_mode);
-			const finalPrompt = `${prompt}, ${style}`;
+			const { formatId, ext } = resolveFormat(params.format);
+			// Create the uploads dir once for this call; persistImage/writeBase64
+			// assume it exists (no per-image mkdir in the batch path).
+			ensureOutputDir(outputDir);
+			// When a style preset is given, send it as Venice's real
+			// `style_preset` field (the API's intended mechanism). When
+			// none is given, append the default quality suffix to the
+			// prompt instead — there's no preset value to send.
+			const finalPrompt = stylePreset ? prompt : `${prompt}, ${DEFAULT_STYLE}`;
 
-			// Venice's API accepts exactly: model, prompt, negative_prompt,
-			// aspect_ratio, format, return_binary, safe_mode, hide_watermark,
-			// style_preset. It does NOT accept an `n` parameter — each request
-			// returns a single image. The batch tool makes N requests.
+			// Venice's API accepts: model, prompt, negative_prompt,
+			// aspect_ratio, format, return_binary, safe_mode,
+			// hide_watermark, style_preset. It does NOT accept an `n`
+			// parameter — each request returns a single image. The batch
+			// tool makes N requests. With return_binary=false the response
+			// is JSON with base64 image strings (NOT hosted URLs); we
+			// persist them to disk below.
 			const body: Record<string, unknown> = {
 				model,
 				prompt: finalPrompt,
-				format: "png",
+				format: formatId,
 				return_binary: false,
 				safe_mode: safeMode,
 				hide_watermark: hideWatermark,
 			};
+			if (stylePreset) body.style_preset = stylePreset;
 			if (typeof params.negative_prompt === "string" && params.negative_prompt.length > 0) {
 				body.negative_prompt = params.negative_prompt;
 			}
@@ -285,7 +237,7 @@ export default function (pi: ExtensionAPI): void {
 
 			try {
 				const resp = await callVeniceImage(apiKey, body, signal);
-				return formatResult(prompt, model, resp);
+				return formatResult(prompt, model, resp, outputDir, ext);
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				return {
@@ -330,22 +282,27 @@ export default function (pi: ExtensionAPI): void {
 				};
 			}
 			const model = resolveModel(params.model as string | null | undefined);
-			const style = typeof params.style_preset === "string" && params.style_preset.length > 0
+			const stylePreset = typeof params.style_preset === "string" && params.style_preset.length > 0
 				? params.style_preset
-				: DEFAULT_STYLE;
+				: undefined;
 			const hideWatermark = params.hide_watermark === undefined
 				? DEFAULT_HIDE_WATERMARK
 				: Boolean(params.hide_watermark);
 			const safeMode = params.safe_mode === undefined ? true : Boolean(params.safe_mode);
+			const { formatId, ext } = resolveFormat(params.format);
+			const outputDir = resolveOutputDir();
+			// One mkdir for the whole batch (was previously per-image).
+			ensureOutputDir(outputDir);
 
 			// Shared per-batch body (negative_prompt, aspect_ratio, etc.).
 			const sharedBody: Record<string, unknown> = {
 				model,
-				format: "png",
+				format: formatId,
 				return_binary: false,
 				safe_mode: safeMode,
 				hide_watermark: hideWatermark,
 			};
+			if (stylePreset) sharedBody.style_preset = stylePreset;
 			if (typeof params.negative_prompt === "string" && params.negative_prompt.length > 0) {
 				sharedBody.negative_prompt = params.negative_prompt;
 			}
@@ -359,15 +316,16 @@ export default function (pi: ExtensionAPI): void {
 			// ≤ 8 (~30-60s total at typical model speeds).
 			for (const p of prompts) {
 				try {
+					const finalPrompt = stylePreset ? p : `${p}, ${DEFAULT_STYLE}`;
 					const resp = await callVeniceImage(
 						apiKey,
-						{ ...sharedBody, prompt: `${p}, ${style}` },
+						{ ...sharedBody, prompt: finalPrompt },
 						signal,
 					);
 					const url = (resp.images ?? [])
-						.map((i) => i.url)
-						.find((u): u is string => typeof u === "string");
-					results.push(url ? { prompt: p, url } : { prompt: p, error: "no image in response" });
+						.map((i) => persistImage(i, outputDir, ext))
+						.find((u): u is string => typeof u === "string" && u.length > 0);
+					results.push(url ? { prompt: p, url } : { prompt: p, error: "no decodable image in response" });
 				} catch (err) {
 					results.push({
 						prompt: p,

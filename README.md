@@ -7,7 +7,7 @@ Registers two tools the agent can call:
 - **`venice_generate_image(prompt, …)`** — one prompt → one image
 - **`venice_generate_images(prompts[])`** — batch over 1–8 prompts
 
-Both hit `POST https://api.venice.ai/api/v1/image/generate`. Auth comes from `VENICE_API_KEY` in the env (the [agentchatbox](https://github.com/anunkai1/agentchatbox) systemd unit injects this via `/home/lepton/.secrets/llm/providers.env`; standalone `pi` reads it from `~/.pi/agent/auth.json`'s `venice` entry). The agent receives the Venice-hosted image URLs back as Markdown in the tool result, plus the raw URLs in `details.images` for programmatic use.
+Both hit `POST https://api.venice.ai/api/v1/image/generate`. Auth comes from `VENICE_API_KEY` in the env (the [agentchatbox](https://github.com/anunkai1/agentchatbox) systemd unit injects this via `/home/lepton/.secrets/llm/providers.env`; standalone `pi` reads it from `~/.pi/agent/auth.json`'s `venice` entry). Venice's `/image/generate` returns **base64-encoded image bytes** (not hosted URLs), so the extension decodes them, writes `<uuid>.<ext>` into the agentchatbox uploads dir (`ACB_UPLOADS_DIR`), and hands back `/uploads/<uuid>.<ext>` URLs. The agent receives those URLs as Markdown in the tool result, plus the raw list in `details.images` for programmatic use.
 
 ## Why
 
@@ -49,6 +49,10 @@ Then restart pi (or run `/reload`). The extension is global (all sessions).
 
 `venice_generate_images` takes the same params minus `n` (each prompt → 1 image; batch does N sequential requests to avoid rate limits). `prompts` array, 1–8 entries.
 
+## Resilience
+
+Each Venice request has a hard **timeout** (default `120000` ms; override with `VENICE_IMAGE_TIMEOUT_MS`) so a stalled connection can't hang the agent turn forever. Requests are retried with exponential backoff on **429** (per-key rate limit) and **5xx** (transient server error) — default `2` retries (override with `VENICE_IMAGE_MAX_RETRIES`, `0` disables). 4xx client errors (auth, bad request) and network errors are surfaced immediately.
+
 ## Pricing
 
 Varies wildly across models — SDXL-tier ~$0.001/img, Flux-2 Max several cents/img. See Venice's model catalog. The agent does not surface cost; if it matters, the user can read response headers in the server log.
@@ -57,6 +61,15 @@ Varies wildly across models — SDXL-tier ~$0.001/img, Flux-2 Max several cents/
 
 - pi-coding-agent ≥ 0.80 (uses `registerTool` from `ExtensionAPI`, typebox schemas)
 - Standalone `pi` and ACB's spawned `pi --mode rpc` both work — env-based config
+
+## Development
+
+```bash
+npm install
+npm test          # vitest — pure-helper unit tests (lib.ts)
+```
+
+The pure helpers (model/format resolution, base64 persistence, the Venice HTTP call with timeout + retry) live in [`extensions/lib.ts`](extensions/lib.ts) and are unit-tested in [`tests/lib.test.ts`](tests/lib.test.ts). Tool registration stays in `extensions/index.ts` and is exercised in production by `pi` (which provides the `typebox` and `@earendil-works/pi-coding-agent` types at load time).
 
 ## License
 

@@ -2,10 +2,24 @@
   "name": "pi-venice-image",
   "version": "0.1.0",
   "description": "Venice image-generation tool for the pi coding agent. Registers `venice_generate_image` (single image) and `venice_generate_images` (batch), powered by the Venice /image/generate endpoint. Default model is taken from the agentchatbox picker's live selection (read from $HOME/.config/acb/image-model each call), falling back to env VENICE_IMAGE_MODEL, then z-image-turbo.",
-  "keywords": ["pi-package", "image-generation", "venice"],
+  "keywords": [
+    "pi-package",
+    "image-generation",
+    "venice"
+  ],
   "type": "module",
   "pi": {
-    "extensions": ["./extensions/index.ts"]
+    "extensions": [
+      "./extensions/index.ts"
+    ]
   },
-  "dependencies": {}
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.9"
+  }
 }
