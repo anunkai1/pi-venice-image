@@ -180,17 +180,17 @@ export default function (pi: ExtensionAPI): void {
 			`Default (${DEFAULT_MODEL})`,
 			...IMAGE_MODELS.map((m) => `${m.name} (${m.id})`),
 		];
-		const selected = await ctx.ui.select("Image generation model", options);
+		const selected = await ctx.ui.select("Venice image generation model", options);
 		if (selected === undefined) return; // cancelled / timed out
 
 		if (selected.startsWith("Default")) {
 			persistImageModelOverride(null);
-			ctx.ui.notify(`Image model reset to default (${DEFAULT_MODEL})`, "info");
+			ctx.ui.notify(`Venice image model reset to default (${DEFAULT_MODEL})`, "info");
 		} else {
 			const match = selected.match(/\(([^)]+)\)\s*$/);
 			const modelId = match ? match[1] : selected;
 			persistImageModelOverride(modelId);
-			ctx.ui.notify(`Image model set to ${modelId}`, "info");
+			ctx.ui.notify(`Venice image model set to ${modelId}`, "info");
 		}
 	};
 
