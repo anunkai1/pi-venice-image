@@ -44,6 +44,8 @@ import {
 	DEFAULT_STYLE,
 	ensureOutputDir,
 	getVeniceKey,
+	IMAGE_MODELS,
+	persistImageModelOverride,
 	persistImage,
 	resolveFormat,
 	resolveModel,
@@ -165,6 +167,42 @@ function formatResult(
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI): void {
+	// ── /imagemodel command ─────────────────────────────────────────
+	//
+	// Lets the user pick a default image-generation model via ctx.ui.select.
+	// In agentchatbox (RPC mode), the select call is relayed to the browser
+	// via the extension_ui protocol; in interactive pi, it renders in the
+	// terminal. The extension owns the model catalog + persistence — ACB
+	// is just the renderer (no file-bridge, no ACB-side model list).
+	const imageModelCommand = async (_args: string, ctx: { ui: { select: (title: string, options: string[], opts?: { timeout?: number }) => Promise<string | undefined>; notify: (msg: string, type?: "info" | "warning" | "error") => void } }): Promise<void> => {
+		const current = resolveModel(null);
+		const options = [
+			`Default (${DEFAULT_MODEL})`,
+			...IMAGE_MODELS.map((m) => `${m.name} (${m.id})`),
+		];
+		const selected = await ctx.ui.select("Image generation model", options);
+		if (selected === undefined) return; // cancelled / timed out
+
+		if (selected.startsWith("Default")) {
+			persistImageModelOverride(null);
+			ctx.ui.notify(`Image model reset to default (${DEFAULT_MODEL})`, "info");
+		} else {
+			const match = selected.match(/\(([^)]+)\)\s*$/);
+			const modelId = match ? match[1] : selected;
+			persistImageModelOverride(modelId);
+			ctx.ui.notify(`Image model set to ${modelId}`, "info");
+		}
+	};
+
+	pi.registerCommand("imagemodel", {
+		description: "Switch the Venice image-generation model",
+		handler: imageModelCommand,
+	});
+	pi.registerCommand("image", {
+		description: "Alias for /imagemodel",
+		handler: imageModelCommand,
+	});
+
 	pi.registerTool({
 		name: "venice_generate_image",
 		label: "Venice: Generate Image",

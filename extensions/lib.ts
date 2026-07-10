@@ -5,7 +5,7 @@
  * in isolation, without standing up the pi tool-registration machinery.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -40,6 +40,60 @@ export const OUTPUT_URL_PREFIX = "/uploads/";
  *  path to whatever HOME was when pi first loaded the extension. */
 export function imageModelOverrideFile(): string {
 	return join(process.env.HOME ?? homedir(), ".config", "acb", "image-model");
+}
+
+/**
+ * Curated Venice image-model catalog — one entry per notable family /
+ * flagship, prioritising current generation. Used by the /imagemodel
+ * command to populate the picker (via ctx.ui.select). IDs come from
+ * `GET https://api.venice.ai/api/v1/models?type=image`.
+ *
+ * This is the single source of truth for which image models the picker
+ * advertises — it lives in the extension (not agentchatbox) because the
+ * extension owns model selection, per the transport-layer rule.
+ */
+export interface ImageModelEntry {
+	id: string;
+	name: string;
+	tags: readonly string[];
+}
+
+export const IMAGE_MODELS: readonly ImageModelEntry[] = [
+	{ id: "flux-2-max", name: "Flux 2 Max", tags: ["flagship", "flux", "photoreal"] },
+	{ id: "flux-2-pro", name: "Flux 2 Pro", tags: ["pro", "flux"] },
+	{ id: "gpt-image-2", name: "GPT Image 2", tags: ["openai", "latest"] },
+	{ id: "gpt-image-1-5", name: "GPT Image 1.5", tags: ["openai"] },
+	{ id: "grok-imagine-image-quality", name: "Grok Imagine Quality", tags: ["grok", "quality"] },
+	{ id: "grok-imagine-image", name: "Grok Imagine", tags: ["grok"] },
+	{ id: "nano-banana-pro", name: "Nano Banana Pro", tags: ["google", "pro"] },
+	{ id: "nano-banana-2", name: "Nano Banana 2", tags: ["google"] },
+	{ id: "nano-banana-2-lite", name: "Nano Banana 2 Lite", tags: ["google", "lite", "cheap"] },
+	{ id: "ideogram-v4", name: "Ideogram V4", tags: ["ideogram", "typography"] },
+	{ id: "qwen-image-2-pro", name: "Qwen Image 2 Pro", tags: ["qwen", "pro"] },
+	{ id: "qwen-image-2", name: "Qwen Image 2", tags: ["qwen"] },
+	{ id: "qwen-image", name: "Qwen Image", tags: ["qwen", "kidstories"] },
+	{ id: "recraft-v4-pro", name: "Recraft V4 Pro", tags: ["recraft", "pro", "vector"] },
+	{ id: "seedream-v5-pro", name: "Seedream V5 Pro", tags: ["seedream", "pro"] },
+	{ id: "wan-2-7-pro-text-to-image", name: "Wan 2.7 Pro T2I", tags: ["wan", "pro"] },
+	{ id: "z-image-turbo", name: "Z-Image Turbo", tags: ["turbo", "fast", "kidstories"] },
+];
+
+/**
+ * Persist (or clear) the user's image-model override. Called by the
+ * /imagemodel command handler. Writing to the same file resolveModel()
+ * reads — so the next venice_generate_image call picks it up live,
+ * without respawning the pi child.
+ */
+export function persistImageModelOverride(modelId: string | null): void {
+	const file = imageModelOverrideFile();
+	mkdirSync(join(file, ".."), { recursive: true });
+	if (modelId === null) {
+		rmSync(file, { force: true });
+		return;
+	}
+	const tmp = `${file}.tmp`;
+	writeFileSync(tmp, `${modelId}\n`, "utf8");
+	renameSync(tmp, file);
 }
 
 /**
