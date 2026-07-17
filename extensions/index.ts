@@ -194,14 +194,12 @@ export default function (pi: ExtensionAPI): void {
 		}
 	};
 
-	pi.registerCommand("imagemodel", {
-		description: "Switch the Venice image-generation model",
-		handler: imageModelCommand,
-	});
-	pi.registerCommand("image", {
-		description: "Alias for /imagemodel",
-		handler: imageModelCommand,
-	});
+	// NOTE: /imagemodel and /image are registered by pi-local-image (the
+	// UNIFIED picker listing local GPU models + Venice models). pi auto-
+	// namespaces duplicate command names (imagemodel:1 / imagemodel:2) which
+	// would break the bare /imagemodel lookup, so only ONE extension may own
+	// it. If pi-local-image is ever removed, restore these two registrations.
+	// The Venice tool (venice_generate_image) below is unaffected.
 
 	pi.registerTool({
 		name: "venice_generate_image",
