@@ -168,6 +168,9 @@ export function resolveModel(explicit?: string | null | undefined): string {
 					// Active model is an OpenRouter-hosted model — don't forward its
 					// id (e.g. `google/gemini-3-pro-image`) to the Venice cloud API;
 					// it would 404. Fall through to env / DEFAULT_MODEL.
+				} else if (raw.startsWith("openai-codex/")) {
+					// Active model is OpenAI Codex/ChatGPT OAuth-backed — don't forward
+					// its id to Venice. Fall through to env / DEFAULT_MODEL.
 				} else if (raw.startsWith("venice/")) {
 					return raw.slice("venice/".length);
 				} else {
