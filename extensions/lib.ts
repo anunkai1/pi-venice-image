@@ -164,6 +164,10 @@ export function resolveModel(explicit?: string | null | undefined): string {
 				if (raw.startsWith("local/")) {
 					// Active model is local — don't forward to Venice. Fall through
 					// to env / DEFAULT_MODEL so a stray call still returns an image.
+				} else if (raw.startsWith("openrouter/")) {
+					// Active model is an OpenRouter-hosted model — don't forward its
+					// id (e.g. `google/gemini-3-pro-image`) to the Venice cloud API;
+					// it would 404. Fall through to env / DEFAULT_MODEL.
 				} else if (raw.startsWith("venice/")) {
 					return raw.slice("venice/".length);
 				} else {
