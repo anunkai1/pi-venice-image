@@ -90,6 +90,38 @@ describe("resolveModel", () => {
 		process.env[envKey] = "qwen-image";
 		expect(resolveModel(undefined)).toBe("qwen-image");
 	});
+
+	// ── source-tagged values from the unified /imagemodel picker ──
+
+	it("strips a venice/ tag from the override file", async () => {
+		const dir = join(tmp, ".config", "acb");
+		await mkdir(dir, { recursive: true });
+		await writeFile(join(dir, "image-model"), "venice/flux-2-max\n");
+		expect(resolveModel(undefined)).toBe("flux-2-max");
+	});
+
+	it("falls through (to env) when the override is local/ — don't 404 the Venice API", async () => {
+		const dir = join(tmp, ".config", "acb");
+		await mkdir(dir, { recursive: true });
+		await writeFile(join(dir, "image-model"), "local/flux-2-klein-int8\n");
+		process.env[envKey] = "flux-2-pro";
+		// local/* must NOT be forwarded to Venice — fall through to env.
+		expect(resolveModel(undefined)).toBe("flux-2-pro");
+	});
+
+	it("falls through to DEFAULT_MODEL when override is local/ and no env", async () => {
+		const dir = join(tmp, ".config", "acb");
+		await mkdir(dir, { recursive: true });
+		await writeFile(join(dir, "image-model"), "local/z-image-turbo\n");
+		expect(resolveModel(undefined)).toBe(DEFAULT_MODEL);
+	});
+
+	it("passes a bare legacy id through unchanged", async () => {
+		const dir = join(tmp, ".config", "acb");
+		await mkdir(dir, { recursive: true });
+		await writeFile(join(dir, "image-model"), "flux-2-max\n");
+		expect(resolveModel(undefined)).toBe("flux-2-max");
+	});
 });
 
 // ── persistImage / writeBase64 ─────────────────────────────────────

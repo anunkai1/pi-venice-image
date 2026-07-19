@@ -145,14 +145,31 @@ export function resolveFormat(format: unknown): { formatId: string; ext: string 
 
 /** Resolved at tool-call time so live changes from the ACB picker
  *  take effect without a pi respawn. Order: explicit param > override
- *  file > VENICE_IMAGE_MODEL env > built-in default. */
+ *  file > VENICE_IMAGE_MODEL env > built-in default.
+ *
+ *  The unified /imagemodel picker (pi-local-image) writes SOURCE-TAGGED
+ *  values to the override file: `local/<id>` for GPU models, `venice/<id>`
+ *  for Venice API models. We honour `venice/` (strip the prefix) and FALL
+ *  THROUGH on `local/` — the active image model is on the local GPU, so a
+ *  stray venice_generate_image call uses a sensible Venice default instead
+ *  of forwarding a nonexistent model id to the Venice cloud API and 404'ing.
+ *  Bare ids pass through unchanged for backward compatibility. */
 export function resolveModel(explicit?: string | null | undefined): string {
 	if (explicit && explicit.length > 0) return explicit;
 	try {
 		const overrideFile = imageModelOverrideFile();
 		if (existsSync(overrideFile)) {
 			const raw = readFileSync(overrideFile, "utf8").trim();
-			if (raw.length > 0) return raw;
+			if (raw.length > 0) {
+				if (raw.startsWith("local/")) {
+					// Active model is local — don't forward to Venice. Fall through
+					// to env / DEFAULT_MODEL so a stray call still returns an image.
+				} else if (raw.startsWith("venice/")) {
+					return raw.slice("venice/".length);
+				} else {
+					return raw; // bare legacy id
+				}
+			}
 		}
 	} catch {
 		/* fall through */
