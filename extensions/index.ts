@@ -128,15 +128,14 @@ const ImageGenerateBatchParams = Type.Object({
  *  the ACB uploads dir and hand back `/uploads/<uuid>.<ext>` URLs. The
  *  agent sees Markdown `![](url)` in the text channel and the raw URL
  *  list in `details.images`. */
-function formatResult(
+async function formatResult(
 	prompt: string,
 	model: string,
 	resp: VeniceImageResponse,
 	outputDir: string,
 	ext: string,
-): { content: Array<{ type: "text"; text: string }>; details: { model: string; images: string[] } } {
-	const urls = (resp.images ?? [])
-		.map((i) => persistImage(i, outputDir, ext))
+): Promise<{ content: Array<{ type: "text"; text: string }>; details: { model: string; images: string[] } }> {
+	const urls = (await Promise.all((resp.images ?? []).map((i) => persistImage(i, outputDir, ext))))
 		.filter((u): u is string => typeof u === "string" && u.length > 0);
 	if (urls.length === 0) {
 		return {
@@ -273,7 +272,7 @@ export default function (pi: ExtensionAPI): void {
 
 			try {
 				const resp = await callVeniceImage(apiKey, body, signal);
-				return formatResult(prompt, model, resp, outputDir, ext);
+				return await formatResult(prompt, model, resp, outputDir, ext);
 			} catch (err) {
 				const msg = err instanceof Error ? err.message : String(err);
 				return {
@@ -358,8 +357,7 @@ export default function (pi: ExtensionAPI): void {
 						{ ...sharedBody, prompt: finalPrompt },
 						signal,
 					);
-					const url = (resp.images ?? [])
-						.map((i) => persistImage(i, outputDir, ext))
+					const url = (await Promise.all((resp.images ?? []).map((i) => persistImage(i, outputDir, ext))))
 						.find((u): u is string => typeof u === "string" && u.length > 0);
 					results.push(url ? { prompt: p, url } : { prompt: p, error: "no decodable image in response" });
 				} catch (err) {

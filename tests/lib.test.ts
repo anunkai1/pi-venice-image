@@ -142,7 +142,7 @@ describe("persistImage / writeBase64", () => {
 		// 1x1 transparent PNG.
 		const png =
 			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
-		const url = persistImage(png, dir, "png");
+		const url = await persistImage(png, dir, "png");
 		expect(url).toMatch(/^\/uploads\/[0-9a-f-]{36}\.png$/);
 		const { readdir } = await import("node:fs/promises");
 		const files = await readdir(dir);
@@ -150,22 +150,22 @@ describe("persistImage / writeBase64", () => {
 		expect(files[0]).toMatch(/\.png$/);
 	});
 
-	it("strips a data: URL prefix before decoding", () => {
+	it("strips a data: URL prefix before decoding", async () => {
 		const png =
 			"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
-		expect(persistImage(png, dir, "png")).toMatch(/^\/uploads\//);
+		expect(await persistImage(png, dir, "png")).toMatch(/^\/uploads\//);
 	});
 
-	it("returns null for an empty / undecodable entry, not a throw", () => {
-		expect(persistImage("", dir, "png")).toBeNull();
-		expect(persistImage("   ", dir, "png")).toBeNull();
-		expect(persistImage({}, dir, "png")).toBeNull();
-		expect(persistImage(null, dir, "png")).toBeNull();
+	it("returns null for an empty / undecodable entry, not a throw", async () => {
+		expect(await persistImage("", dir, "png")).toBeNull();
+		expect(await persistImage("   ", dir, "png")).toBeNull();
+		expect(await persistImage({}, dir, "png")).toBeNull();
+		expect(await persistImage(null, dir, "png")).toBeNull();
 	});
 
-	it("passes a hosted { url } / { image } through untouched", () => {
-		expect(persistImage({ url: "https://x/y.png" }, dir, "png")).toBe("https://x/y.png");
-		expect(persistImage({ image: "https://x/z.png" }, dir, "png")).toBe("https://x/z.png");
+	it("passes a hosted { url } / { image } through untouched", async () => {
+		expect(await persistImage({ url: "https://x/y.png" }, dir, "png")).toBe("https://x/y.png");
+		expect(await persistImage({ image: "https://x/z.png" }, dir, "png")).toBe("https://x/z.png");
 	});
 
 	it("THROWS on a filesystem error (disk full / perms), surfacing the real cause", async () => {
@@ -176,7 +176,7 @@ describe("persistImage / writeBase64", () => {
 		await (await import("node:fs/promises")).chmod(ro, 0o555);
 		// Skip on platforms where root bypasses perms.
 		if (process.getuid?.() === 0) return;
-		expect(() => writeBase64("aGVsbG8=", ro, "png")).toThrow();
+		await expect(writeBase64("aGVsbG8=", ro, "png")).rejects.toThrow();
 	});
 });
 
