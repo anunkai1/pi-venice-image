@@ -2,12 +2,11 @@
 
 Venice image-generation tool for the [pi coding agent](https://github.com/earendil-works/pi).
 
-Registers two tools the agent can call:
+Registers one tool the agent can call:
 
 - **`venice_generate_image(prompt, …)`** — one prompt → one image
-- **`venice_generate_images(prompts[])`** — batch over 1–8 prompts
 
-Both hit `POST https://api.venice.ai/api/v1/image/generate`. Auth comes from `VENICE_API_KEY` in the env (the [agentchatbox](https://github.com/anunkai1/agentchatbox) systemd unit injects this via `/home/lepton/.secrets/llm/providers.env`; standalone `pi` reads it from `~/.pi/agent/auth.json`'s `venice` entry). Venice's `/image/generate` returns **base64-encoded image bytes** (not hosted URLs), so the extension decodes them, writes `<uuid>.<ext>` into the agentchatbox uploads dir (`ACB_UPLOADS_DIR`), and hands back `/uploads/<uuid>.<ext>` URLs. The agent receives those URLs as Markdown in the tool result, plus the raw list in `details.images` for programmatic use.
+It hits `POST https://api.venice.ai/api/v1/image/generate`. Auth comes from `VENICE_API_KEY` in the env (the [agentchatbox](https://github.com/anunkai1/agentchatbox) systemd unit injects this via `/home/lepton/.secrets/llm/providers.env`; standalone `pi` reads it from `~/.pi/agent/auth.json`'s `venice` entry). Venice's `/image/generate` returns **base64-encoded image bytes** (not hosted URLs), so the extension decodes them, writes `<uuid>.<ext>` into the agentchatbox uploads dir (`ACB_UPLOADS_DIR`), and hands back `/uploads/<uuid>.<ext>` URLs. The agent receives those URLs as Markdown in the tool result, plus the raw list in `details.images` for programmatic use.
 
 ## Why
 
@@ -47,7 +46,6 @@ Then restart pi (or run `/reload`). The extension is global (all sessions).
 | `hide_watermark` | bool | `true` | Suppress the Venice cursive logo (bottom-left) |
 | `safe_mode` | bool | `true` | Apply Venice's content safety filter |
 
-`venice_generate_images` takes the same params minus `n` (each prompt → 1 image; batch does N sequential requests to avoid rate limits). `prompts` array, 1–8 entries.
 
 ## Resilience
 

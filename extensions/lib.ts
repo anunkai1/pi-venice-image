@@ -10,7 +10,7 @@
  * already import.
  */
 
-import { resolveModel as resolveModelCore, VENICE_IMAGE_MODELS } from "pi-image-core";
+import { resolveModel as resolveModelCore } from "pi-image-core";
 
 // Re-export the shared helpers under their original (Venice-extension) names.
 export {
@@ -18,7 +18,6 @@ export {
 	ensureOutputDir,
 	getVeniceKey,
 	persistImage,
-	persistImageModelOverride,
 	resolveFormat,
 	resolveOutputDir,
 	writeBase64,
@@ -31,9 +30,6 @@ export {
 	VENICE_REQUEST_TIMEOUT_MS as REQUEST_TIMEOUT_MS,
 	VENICE_MAX_RETRIES as MAX_RETRIES,
 } from "pi-image-core";
-
-/** Venice model catalog (re-exported under the legacy name `IMAGE_MODELS`). */
-export const IMAGE_MODELS = VENICE_IMAGE_MODELS;
 
 // ── Venice-specific configuration ──────────────────────────────────
 
