@@ -96,7 +96,7 @@ const ImageGenerateParams = Type.Object({
 	safe_mode: Type.Optional(
 		Type.Boolean({
 			description:
-				"Apply Venice's content safety filter. Default true. Disable for uncensored outputs (overlaps with the user's choice of model).",
+				"Apply Venice's content safety filter. Default false (the filter is opt-in).",
 		}),
 	),
 });
@@ -187,7 +187,9 @@ export default function (pi: ExtensionAPI): void {
 			const hideWatermark = params.hide_watermark === undefined
 				? DEFAULT_HIDE_WATERMARK
 				: Boolean(params.hide_watermark);
-			const safeMode = params.safe_mode === undefined ? true : Boolean(params.safe_mode);
+			// Default off, matching the /imggen router (owner decision 07/10/2026):
+			// the filter is opt-in, so a call is uncensored unless it asks for it.
+			const safeMode = Boolean(params.safe_mode);
 			const { formatId, ext } = resolveFormat(params.format);
 			// Create the uploads dir once for this call; persistImage/writeBase64
 			// assume it exists (no per-image mkdir in the batch path).
@@ -201,10 +203,9 @@ export default function (pi: ExtensionAPI): void {
 			// Venice's API accepts: model, prompt, negative_prompt,
 			// aspect_ratio, format, return_binary, safe_mode,
 			// hide_watermark, style_preset. It does NOT accept an `n`
-			// parameter — each request returns a single image. The batch
-			// tool makes N requests. With return_binary=false the response
-			// is JSON with base64 image strings (NOT hosted URLs); we
-			// persist them to disk below.
+			// parameter — each request returns a single image. With
+			// return_binary=false the response is JSON with base64 image
+			// strings (NOT hosted URLs); we persist them to disk below.
 			const body: Record<string, unknown> = {
 				model,
 				prompt: finalPrompt,

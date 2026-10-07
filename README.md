@@ -44,7 +44,7 @@ Then restart pi (or run `/reload`). The extension is global (all sessions).
 | `format` | `"png"` \| `"jpeg"` \| `"webp"` | `"png"` | Output format |
 | `style_preset` | string | — | Venice style preset (e.g. `"cinematic"`, `"watercolor"`) |
 | `hide_watermark` | bool | `true` | Suppress the Venice cursive logo (bottom-left) |
-| `safe_mode` | bool | `true` | Apply Venice's content safety filter |
+| `safe_mode` | bool | `false` | Apply Venice's content safety filter (opt-in; matches `/imggen`) |
 
 
 ## Resilience
